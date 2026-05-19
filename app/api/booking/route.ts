@@ -1,57 +1,48 @@
-import { NextResponse } from "next/server";
-import { createBooking } from "@/src/lib/booking-store";
-import { parseBookingPayload } from "@/src/lib/booking-validation";
-import { buildBookingWhatsAppUrl, sendBookingWebhook } from "@/src/lib/notifications";
+import fs from "fs";
+import path from "path";
 
-export async function POST(request: Request) {
+// SOLUSI VERCEL: Mengalihkan penyimpanan dari folder project ke folder serverless temporary (/tmp)
+const filePath = path.join("/tmp", "bookings.json");
+
+// Fungsi pembantu untuk memastikan file JSON selalu siap dibaca/ditulis tanpa error
+function initializeFile() {
   try {
-    // 1. Ambil dan validasi data dari frontend
-    const payload = await request.json();
-    const parsed = parseBookingPayload(payload);
-
-    if (!parsed.ok) {
-      return NextResponse.json({ error: parsed.error }, { status: 400 });
+    if (!fs.existsSync(filePath)) {
+      // Jika file belum ada di folder /tmp, buat file baru dengan array kosong []
+      fs.writeFileSync(filePath, JSON.stringify([], null, 2), "utf-8");
     }
+  } catch (error) {
+    console.error("⚠️ Gagal menginisialisasi file di /tmp:", error);
+  }
+}
 
-    // 2. Simpan data booking ke database (Firebase)
-    const booking = await createBooking(parsed.data);
-    
-    // 3. Buat URL WhatsApp
-    const whatsappUrl = buildBookingWhatsAppUrl(booking);
+export async function createBooking(data: any) {
+  // Pastikan file pembungkusnya sudah siap di folder temporary Vercel
+  initializeFile();
 
-    // 4. Kirim Webhook ke Render (Diberi tipe 'any' agar TypeScript tidak rewel)
-    let webhookResult: any = { sent: false, reason: "Tidak dieksekusi" };
-    try {
-      webhookResult = await sendBookingWebhook("booking.created", booking);
-    } catch (webhookError) {
-      console.error("⚠️ Gagal mengirim webhook ke Render (tapi booking aman):", webhookError);
-      webhookResult = { 
-        sent: false, 
-        reason: webhookError instanceof Error ? webhookError.message : "Internal webhook error" 
-      };
-    }
+  try {
+    // 1. Baca data lama dari folder /tmp
+    const fileData = fs.readFileSync(filePath, "utf-8");
+    const bookings = JSON.parse(fileData || "[]");
 
-    // 5. Kembalikan respon sukses ke frontend
-    return NextResponse.json(
-      {
-        success: true,
-        booking,
-        whatsappUrl,
-        webhook: webhookResult,
-      },
-      { status: 201 },
-    );
+    // 2. Buat objek data booking baru lengkap dengan ID dan Timestamp
+    const newBooking = {
+      id: `book_${Date.now()}`,
+      ...data,
+      createdAt: new Date().toISOString(),
+    };
+
+    // 3. Masukkan data baru ke dalam list array
+    bookings.push(newBooking);
+
+    // 4. Tulis kembali ke dalam folder /tmp (Vercel mengizinkan penulisan di folder ini!)
+    fs.writeFileSync(filePath, JSON.stringify(bookings, null, 2), "utf-8");
+
+    // Kembalikan data booking yang sukses dibuat agar bisa dibaca oleh API Route dan Webhook Render
+    return newBooking;
 
   } catch (error) {
-    // Menampilkan error asli di log server Vercel untuk mempermudah debugging
-    console.error("🔥 Error Fatal pada API Route /api/booking:", error);
-
-    return NextResponse.json(
-      { 
-        error: "Gagal memproses booking.",
-        details: error instanceof Error ? error.message : String(error)
-      },
-      { status: 500 },
-    );
+    console.error("❌ Gagal menyimpan data ke store lokal (/tmp):", error);
+    throw new Error(error instanceof Error ? error.message : "Gagal memproses file database.");
   }
 }

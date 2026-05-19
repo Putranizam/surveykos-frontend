@@ -32,8 +32,14 @@ export async function PATCH(
 
     return NextResponse.json({ success: true, testimonial: updated });
   } catch (error) {
+    // Menampilkan error asli di log server Vercel
+    console.error(`🔥 Error Fatal saat PATCH testimonial ID ${id}:`, error);
+
     return NextResponse.json(
-      { error: "Gagal update testimonial." },
+      { 
+        error: "Gagal update testimonial.",
+        details: error instanceof Error ? error.message : String(error)
+      },
       { status: 500 }
     );
   }
@@ -60,8 +66,14 @@ export async function DELETE(
 
     return NextResponse.json({ success: true });
   } catch (error) {
+    // Menampilkan error asli di log server Vercel
+    console.error(`🔥 Error Fatal saat DELETE testimonial ID ${id}:`, error);
+
     return NextResponse.json(
-      { error: "Gagal hapus testimonial." },
+      { 
+        error: "Gagal hapus testimonial.",
+        details: error instanceof Error ? error.message : String(error)
+      },
       { status: 500 }
     );
   }
