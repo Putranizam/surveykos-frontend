@@ -5,6 +5,7 @@ import { buildBookingWhatsAppUrl, sendBookingWebhook } from "@/src/lib/notificat
 
 export async function POST(request: Request) {
   try {
+    // 1. Ambil dan validasi data dari frontend
     const payload = await request.json();
     const parsed = parseBookingPayload(payload);
 
@@ -12,10 +13,25 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: parsed.error }, { status: 400 });
     }
 
+    // 2. Simpan data booking ke database (Firebase)
     const booking = await createBooking(parsed.data);
-    const webhookResult = await sendBookingWebhook("booking.created", booking);
+    
+    // 3. Buat URL WhatsApp
     const whatsappUrl = buildBookingWhatsAppUrl(booking);
 
+    // 4. Kirim Webhook ke Render (Diberi tipe 'any' agar TypeScript tidak rewel)
+    let webhookResult: any = { sent: false, reason: "Tidak dieksekusi" };
+    try {
+      webhookResult = await sendBookingWebhook("booking.created", booking);
+    } catch (webhookError) {
+      console.error("⚠️ Gagal mengirim webhook ke Render (tapi booking aman):", webhookError);
+      webhookResult = { 
+        sent: false, 
+        reason: webhookError instanceof Error ? webhookError.message : "Internal webhook error" 
+      };
+    }
+
+    // 5. Kembalikan respon sukses ke frontend
     return NextResponse.json(
       {
         success: true,
@@ -25,9 +41,16 @@ export async function POST(request: Request) {
       },
       { status: 201 },
     );
-  } catch {
+
+  } catch (error) {
+    // Menampilkan error asli di log server Vercel untuk mempermudah debugging
+    console.error("🔥 Error Fatal pada API Route /api/booking:", error);
+
     return NextResponse.json(
-      { error: "Gagal memproses booking." },
+      { 
+        error: "Gagal memproses booking.",
+        details: error instanceof Error ? error.message : String(error)
+      },
       { status: 500 },
     );
   }
