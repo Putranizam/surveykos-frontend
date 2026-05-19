@@ -1,7 +1,7 @@
 import * as admin from 'firebase-admin';
 
-// 1. Fungsi internal inisialisasi aman
-function getFirebaseAdminApp() {
+// 1. Fungsi internal untuk memastikan Firebase terinisialisasi dengan aman
+function initializeFirebaseAdmin() {
   if (!admin.apps.length) {
     try {
       const projectId = process.env.FIREBASE_PROJECT_ID;
@@ -9,6 +9,7 @@ function getFirebaseAdminApp() {
       let privateKey = process.env.FIREBASE_PRIVATE_KEY;
 
       if (projectId && clientEmail && privateKey) {
+        // Bersihkan tanda kutip jika terbawa dari dashboard Vercel
         if (privateKey.startsWith('"') && privateKey.endsWith('"')) {
           privateKey = privateKey.slice(1, -1);
         }
@@ -28,9 +29,10 @@ function getFirebaseAdminApp() {
       console.error('❌ Firebase Admin initialization error:', error);
     }
   }
-  return admin.apps[0];
 }
 
-// 2. Ekspor instans db secara dinamis dan aman
-getFirebaseAdminApp();
-export const db = admin.apps.length ? admin.firestore() : (null as unknown as admin.firestore.Firestore);
+// 2. Jalankan inisialisasi secara instan sebelum melakukan ekspor
+initializeFirebaseAdmin();
+
+// 3. Ekspor fungsi database secara aman tanpa perantara kondisi ternary inline
+export const db = admin.firestore();
