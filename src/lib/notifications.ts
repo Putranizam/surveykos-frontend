@@ -1,10 +1,8 @@
 import type { BookingRecord } from "@/src/lib/booking-types";
 
 export async function sendBookingWebhook(event: string, booking: BookingRecord) {
-  // Ambil URL dari environment variable Vercel
   const webhookUrl = process.env.BOOKING_WEBHOOK_URL;
 
-  // Jika env belum diset, jangan biarkan melempar error crash, cukup kembalikan status aman
   if (!webhookUrl) {
     console.warn("⚠️ BOOKING_WEBHOOK_URL belum diset di Environment Variables.");
     return { sent: false, reason: "BOOKING_WEBHOOK_URL belum diset." };
@@ -16,11 +14,10 @@ export async function sendBookingWebhook(event: string, booking: BookingRecord) 
     booking,
   };
 
-  try {
-    // Tambahkan konfigurasi signal timeout agar fetch tidak menggantung lama jika Render sedang sleep/loading lambat
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 8000); // timeout 8 detik
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
 
+  try {
     const response = await fetch(webhookUrl, {
       method: "POST",
       headers: { 
@@ -38,11 +35,18 @@ export async function sendBookingWebhook(event: string, booking: BookingRecord) 
       return { sent: false, reason: `Webhook gagal: ${response.status}` };
     }
 
-    // Ambil response data agar koneksi fetch selesai dengan bersih
     const data = await response.json().catch(() => ({}));
-
     return { sent: true, data };
+
   } catch (error) {
+    clearTimeout(timeoutId);
+    
+    // Memberikan pesan log yang lebih informatif jika terkena Abort / Timeout akibat Render Sleep
+    if (error instanceof Error && error.name === "AbortError") {
+      console.warn("⚠️ Webhook di-abort: Server Render terlalu lama terbangun dari mode tidur (Cold Start).");
+      return { sent: false, reason: "Timeout: Server Render sedang mode tidur." };
+    }
+
     console.error("❌ Gagal mengirim webhook ke Render:", error);
     return {
       sent: false,
@@ -52,7 +56,6 @@ export async function sendBookingWebhook(event: string, booking: BookingRecord) 
 }
 
 export function buildBookingWhatsAppUrl(booking: BookingRecord): string {
-  // Pastikan nomor WhatsApp bersih dari karakter spasi atau strip
   const rawPhone = process.env.NEXT_PUBLIC_WHATSAPP_NUMBER || "6281217052097";
   const phone = rawPhone.replace(/\D/g, "");
 
