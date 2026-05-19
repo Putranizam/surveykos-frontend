@@ -2,23 +2,27 @@ import path from "node:path";
 import { promises as fs } from "node:fs";
 import type { BookingInput, BookingRecord, BookingStatus } from "@/src/lib/booking-types";
 
-const dataPath = path.join(process.cwd(), "data", "bookings.json");
+// SOLUSI VERCEL: Alihkan dari process.cwd() ke folder temporary (/tmp) agar bisa Write/Edit file
+const dataPath = path.join("/tmp", "bookings.json");
 
 async function ensureStore() {
-  await fs.mkdir(path.dirname(dataPath), { recursive: true });
-
   try {
-    await fs.access(dataPath);
-  } catch {
-    await fs.writeFile(dataPath, "[]", "utf8");
+    await fs.mkdir(path.dirname(dataPath), { recursive: true });
+    try {
+      await fs.access(dataPath);
+    } catch {
+      // Jika file belum ada di /tmp, buat baru dengan array kosong
+      await fs.writeFile(dataPath, "[]", "utf8");
+    }
+  } catch (error) {
+    console.error("⚠️ Gagal memastikan store di /tmp:", error);
   }
 }
 
 async function readRaw(): Promise<BookingRecord[]> {
   await ensureStore();
-  const content = await fs.readFile(dataPath, "utf8");
-
   try {
+    const content = await fs.readFile(dataPath, "utf8");
     const parsed = JSON.parse(content);
     return Array.isArray(parsed) ? (parsed as BookingRecord[]) : [];
   } catch {
@@ -27,7 +31,12 @@ async function readRaw(): Promise<BookingRecord[]> {
 }
 
 async function writeRaw(bookings: BookingRecord[]) {
-  await fs.writeFile(dataPath, JSON.stringify(bookings, null, 2), "utf8");
+  try {
+    await fs.writeFile(dataPath, JSON.stringify(bookings, null, 2), "utf8");
+  } catch (error) {
+    console.error("❌ Gagal menulis data ke /tmp:", error);
+    throw error;
+  }
 }
 
 export async function createBooking(input: BookingInput): Promise<BookingRecord> {

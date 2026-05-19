@@ -1,6 +1,9 @@
 import * as admin from 'firebase-admin';
 
-// 1. Fungsi internal untuk memastikan Firebase terinisialisasi hanya saat dibutuhkan (Lazy Init)
+/**
+ * 1. Fungsi internal untuk memastikan Firebase Admin terinisialisasi hanya saat dibutuhkan (Lazy Init).
+ * Menghindari crash 'app/no-app' saat proses compiling/build di Vercel.
+ */
 function ensureFirebaseAdmin(): void {
   if (!admin.apps.length) {
     try {
@@ -9,7 +12,7 @@ function ensureFirebaseAdmin(): void {
       let privateKey = process.env.FIREBASE_PRIVATE_KEY;
 
       if (projectId && clientEmail && privateKey) {
-        // Bersihkan tanda kutip jika terbawa dari dashboard Vercel
+        // Jaring pengaman: Bersihkan tanda kutip jika terbawa dari dashboard Vercel
         if (privateKey.startsWith('"') && privateKey.endsWith('"')) {
           privateKey = privateKey.slice(1, -1);
         }
@@ -31,19 +34,28 @@ function ensureFirebaseAdmin(): void {
   }
 }
 
-// 2. Ekspor db sebagai Proxy Pintar
-// Menghindari evaluasi instan saat build/compile time, aman 100% dari eror 'app/no-app'
+/**
+ * 2. Ekspor db sebagai Proxy Pintar (Anti-Crash & Aman Konteks Fungsi).
+ * Memastikan metode seperti db.collection() mempertahankan konteks internal Firestore-nya.
+ */
 export const db = new Proxy({} as admin.firestore.Firestore, {
   get(_, prop) {
-    // Jalankan inisialisasi HANYA KETIKA file lain memanggil properti db (seperti db.collection)
+    // Jalankan inisialisasi HANYA KETIKA file lain mulai mengakses properti db
     ensureFirebaseAdmin();
     
-    // Jika app gagal dibuat karena env kosong saat build, berikan fallback error yang informatif saat runtime
     if (!admin.apps.length) {
-      throw new Error("🔥 Firebase App belum diinisialisasi. Periksa Environment Variables di Vercel.");
+      throw new Error("🔥 Firebase App belum diinisialisasi. Pastikan Environment Variables (PROJECT_ID, CLIENT_EMAIL, PRIVATE_KEY) sudah diisi dan di-Redeploy di Vercel.");
     }
     
     const firestoreInstance = admin.firestore();
-    return Reflect.get(firestoreInstance, prop);
+    const value = Reflect.get(firestoreInstance, prop);
+    
+    // PERBAIKAN UTAMA: Jika properti yang diakses adalah sebuah fungsi/metode (seperti .collection()),
+    // kita wajib mengikat (bind) fungsi tersebut ke instans firestore asli agar tidak kehilangan konteks 'this'.
+    if (typeof value === 'function') {
+      return value.bind(firestoreInstance);
+    }
+    
+    return value;
   }
 });
