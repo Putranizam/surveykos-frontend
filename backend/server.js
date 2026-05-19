@@ -6,11 +6,29 @@ const path = require("path");
 
 const app = express();
 
-// CORS Configuration - Updated untuk production di Infinity Hosting
+// ==========================================
+// 1. CONFIGURATIONS & ENVIRONMENT VARIABLES
+// ==========================================
+const PORT = process.env.PORT || 3001;
+const WHATSAPP_NUMBER = process.env.WHATSAPP_NUMBER || "628XXXXXXXXXX";
+
+// Di server Render (Production), tulis file harus diarahkan ke folder /tmp
+const LOGS_DIR = process.env.NODE_ENV === "production" 
+  ? "/tmp/logs" 
+  : path.join(__dirname, "logs");
+
+// Pastikan folder logs tersedia
+if (!fs.existsSync(LOGS_DIR)) {
+  fs.mkdirSync(LOGS_DIR, { recursive: true });
+}
+
+// ==========================================
+// 2. MIDDLEWARES (CORS & JSON PARSER)
+// ==========================================
 const corsOptions = {
   origin: (origin, callback) => {
     const allowedOrigins = [
-      process.env.FRONTEND_URL || "https://survey-kos-frontend.infinityfreeapp.com",
+      process.env.FRONTEND_URL, // Diisi URL Vercel kamu di dashboard Render
       "http://localhost:3000",
       "http://localhost:3001",
       "http://127.0.0.1:3000",
@@ -19,7 +37,7 @@ const corsOptions = {
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
-      console.warn(`CORS blocked origin: ${origin}`);
+      console.warn(`⚠️ CORS blocked origin: ${origin}`);
       callback(new Error("Not allowed by CORS"));
     }
   },
@@ -31,16 +49,9 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.use(express.json());
 
-const PORT = process.env.PORT || 3001;
-const WHATSAPP_NUMBER = process.env.WHATSAPP_NUMBER || "628XXXXXXXXXX";
-const LOGS_DIR = path.join(__dirname, "logs");
-
-// Buat folder logs jika belum ada
-if (!fs.existsSync(LOGS_DIR)) {
-  fs.mkdirSync(LOGS_DIR, { recursive: true });
-}
-
-// Format booking data untuk notifikasi
+// ==========================================
+// 3. HELPER FUNCTIONS
+// ==========================================
 function formatBookingMessage(booking, event) {
   const eventLabel = {
     "booking.created": "📝 BOOKING BARU",
@@ -68,41 +79,38 @@ Waktu: ${new Date().toLocaleString("id-ID")}
   `.trim();
 }
 
-// Log notifikasi ke file
 function logNotification(event, booking, message) {
-  const timestamp = new Date().toISOString();
+  const logFile = path.join(LOGS_DIR, `notifications-${new Date().toISOString().split("T")[0]}.json`);
   const logEntry = {
-    timestamp,
+    timestamp: new Date().toISOString(),
     event,
     bookingId: booking.id,
     phoneNumber: WHATSAPP_NUMBER,
     message,
   };
 
-  const logFile = path.join(
-    LOGS_DIR,
-    `notifications-${new Date().toISOString().split("T")[0]}.json`
-  );
-
   try {
     let logs = [];
     if (fs.existsSync(logFile)) {
       const content = fs.readFileSync(logFile, "utf-8");
-      logs = JSON.parse(content);
+      logs = JSON.parse(content || "[]");
     }
     logs.push(logEntry);
     fs.writeFileSync(logFile, JSON.stringify(logs, null, 2));
   } catch (error) {
-    console.error("Error logging notification:", error.message);
+    console.error("❌ Error logging notification:", error.message);
   }
 }
 
-// Webhook endpoint
-app.post("/webhook/booking", async (req, res) => {
+// ==========================================
+// 4. API ROUTING / ENDPOINTS
+// ==========================================
+
+// Webhook Endpoint
+app.post("/webhook/booking", (req, res) => {
   try {
     const { event, booking } = req.body;
 
-    // Validasi input
     if (!event || !booking) {
       return res.status(400).json({
         success: false,
@@ -110,26 +118,10 @@ app.post("/webhook/booking", async (req, res) => {
       });
     }
 
-    console.log(`\n📬 Webhook diterima: ${event}`);
-    console.log(`   Booking ID: ${booking.id}`);
-    console.log(`   Nama: ${booking.fullName}`);
-    console.log(`   Status: ${booking.status}`);
+    console.log(`\n📬 Webhook masuk: [${event}] ID: ${booking.id} (${booking.fullName})`);
 
-    // Format message
     const message = formatBookingMessage(booking, event);
-
-    // Log ke file
     logNotification(event, booking, message);
-
-    console.log("\n📱 Notifikasi yang akan dikirim ke WhatsApp:");
-    console.log("─".repeat(50));
-    console.log(message);
-    console.log("─".repeat(50));
-    console.log(
-      `\n💾 Notifikasi tersimpan di: logs/notifications-${
-        new Date().toISOString().split("T")[0]
-      }.json`
-    );
 
     res.json({
       success: true,
@@ -141,26 +133,24 @@ app.post("/webhook/booking", async (req, res) => {
     });
   } catch (error) {
     console.error("❌ Error processing webhook:", error);
-    res.status(500).json({
-      success: false,
-      error: error.message,
-    });
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
-// Get all notifications
+// Get All Notifications Log
 app.get("/notifications", (req, res) => {
   try {
-    const files = fs
-      .readdirSync(LOGS_DIR)
-      .filter((f) => f.endsWith(".json")); // hanya baca file JSON
+    if (!fs.existsSync(LOGS_DIR)) {
+      return res.json({ total: 0, notifications: [] });
+    }
 
+    const files = fs.readdirSync(LOGS_DIR).filter((f) => f.endsWith(".json"));
     const allNotifications = [];
 
     files.forEach((file) => {
       try {
         const content = fs.readFileSync(path.join(LOGS_DIR, file), "utf-8");
-        allNotifications.push(...JSON.parse(content));
+        allNotifications.push(...JSON.parse(content || "[]"));
       } catch (parseErr) {
         console.warn(`⚠️ Gagal membaca file log: ${file}`);
       }
@@ -168,69 +158,49 @@ app.get("/notifications", (req, res) => {
 
     res.json({
       total: allNotifications.length,
-      notifications: allNotifications.sort(
-        (a, b) => new Date(b.timestamp) - new Date(a.timestamp)
-      ),
+      notifications: allNotifications.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)),
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-// Health check
+// Health Check
 app.get("/health", (req, res) => {
   res.json({
     status: "ok",
-    mode: "simple-logging",
+    mode: process.env.NODE_ENV || "development",
     whatsappNumber: WHATSAPP_NUMBER,
-    logsDirectory: LOGS_DIR,
     uptime: `${Math.floor(process.uptime())}s`,
   });
 });
 
-// 404 handler
+// 404 Fallback Handler
 app.use((req, res) => {
-  res.status(404).json({ error: `Route ${req.method} ${req.path} tidak ditemukan` });
+  res.status(404).json({ error: `Rute ${req.method} ${req.path} tidak ditemukan` });
 });
 
-// Start server dengan error handling port bentrok
+// ==========================================
+// 5. SERVER INITIALIZATION & SHUTDOWN
+// ==========================================
 const server = app.listen(PORT, () => {
-  console.log(`
-╔════════════════════════════════════════╗
-║   🚀 Backend Server Berjalan          ║
-║   Port: ${PORT}                            ║
-║   Mode: Logging (WhatsApp Manual)     ║
-║   WhatsApp: ${WHATSAPP_NUMBER}  ║
-╚════════════════════════════════════════╝
-
-📋 Endpoint:
-  - POST   /webhook/booking     (Terima notifikasi)
-  - GET    /notifications       (Lihat semua notifikasi)
-  - GET    /health              (Status server)
-
-📁 Notifikasi tersimpan di: ./logs/
-  `);
+  console.log(`🚀 Backend Server ready on port ${PORT} [Mode: ${process.env.NODE_ENV || 'development'}]`);
 });
 
-// Handle port sudah dipakai
+// Handle Port Collision Error
 server.on("error", (err) => {
   if (err.code === "EADDRINUSE") {
     console.error(`\n❌ ERROR: Port ${PORT} sudah digunakan proses lain!`);
-    console.error(`   Solusi:`);
-    console.error(`   1. Jalankan: netstat -ano | findstr :${PORT}`);
-    console.error(`   2. Kill PID-nya: taskkill /PID <nomor> /F`);
-    console.error(`   3. Atau ganti port: set PORT=5002 && node server.js\n`);
   } else {
     console.error("❌ Server error:", err.message);
   }
   process.exit(1);
 });
 
-// Graceful shutdown
+// Graceful Shutdown
 process.on("SIGINT", () => {
-  console.log("\n👋 Server dimatikan dengan aman...");
   server.close(() => {
-    console.log("✅ Server berhasil dimatikan.");
+    console.log("✅ Server berhasil dimatikan secara aman.");
     process.exit(0);
   });
 });
