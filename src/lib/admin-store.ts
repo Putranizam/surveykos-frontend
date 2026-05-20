@@ -5,10 +5,27 @@ import type { Testimonial, TestimonialStatus, Finance } from "./admin-types";
 // TESTIMONIALS SECTION
 // ==========================================
 
+/**
+ * Mengambil semua data testimoni, diurutkan dari yang terbaru secara aman
+ */
 export async function listTestimonials(): Promise<Testimonial[]> {
   try {
     const snapshot = await db.collection("testimonials").get();
-    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Testimonial));
+    
+    if (snapshot.empty) return [];
+
+    return snapshot.docs.map(doc => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        name: data.name || "Anonim",
+        role: data.role || "Pengguna",
+        message: data.message || "",
+        stars: Number(data.stars) || 5,
+        status: data.status || "pending",
+        createdAt: data.createdAt || new Date().toISOString(),
+      } as Testimonial;
+    });
   } catch (error) {
     console.error("❌ Error listing testimonials from Firebase:", error);
     return [];
@@ -19,6 +36,7 @@ export async function createTestimonial(data: Omit<Testimonial, "id" | "createdA
   try {
     const testimonialData = {
       ...data,
+      status: data.status || "pending",
       createdAt: new Date().toISOString(),
     };
 
@@ -69,10 +87,26 @@ export async function deleteTestimonial(id: string): Promise<boolean> {
 // FINANCES SECTION
 // ==========================================
 
+/**
+ * Mengambil semua data keuangan dengan fallback nilai aman untuk mencegah crash UI
+ */
 export async function listFinances(): Promise<Finance[]> {
   try {
     const snapshot = await db.collection("finances").get();
-    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Finance));
+    
+    if (snapshot.empty) return [];
+
+    return snapshot.docs.map(doc => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        title: data.title || "Transaksi Tanpa Judul",
+        amount: Number(data.amount) || 0,
+        type: data.type === "expense" ? "expense" : "income",
+        category: data.category || "Umum",
+        createdAt: data.createdAt || new Date().toISOString(),
+      } as Finance;
+    });
   } catch (error) {
     console.error("❌ Error listing finances from Firebase:", error);
     return [];
@@ -83,6 +117,7 @@ export async function createFinance(data: Omit<Finance, "id" | "createdAt">): Pr
   try {
     const financeData = {
       ...data,
+      amount: Number(data.amount) || 0,
       createdAt: new Date().toISOString(),
     };
 
@@ -100,6 +135,10 @@ export async function updateFinance(id: string, data: Partial<Omit<Finance, "id"
     const doc = await docRef.get();
 
     if (!doc.exists) return null;
+
+    if (data.amount !== undefined) {
+      data.amount = Number(data.amount) || 0;
+    }
 
     await docRef.update(data);
     return { id, ...doc.data(), ...data } as Finance;
