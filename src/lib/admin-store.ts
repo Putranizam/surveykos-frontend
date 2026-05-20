@@ -6,7 +6,7 @@ import type { Testimonial, TestimonialStatus, Finance } from "./admin-types";
 // ==========================================
 
 /**
- * Mengambil semua data testimoni, diurutkan dari yang terbaru secara aman
+ * Mengambil semua data testimoni, diselaraskan dengan type Testimonial (location, quote, rating)
  */
 export async function listTestimonials(): Promise<Testimonial[]> {
   try {
@@ -20,8 +20,9 @@ export async function listTestimonials(): Promise<Testimonial[]> {
         id: doc.id,
         name: data.name || "Anonim",
         role: data.role || "Pengguna",
-        message: data.message || "",
-        stars: Number(data.stars) || 5,
+        location: data.location || "Malang",
+        quote: data.quote || data.message || "", // Fallback ke message kalau ada data lama di Firebase
+        rating: Number(data.rating) || Number(data.stars) || 5, // Fallback ke stars kalau data lama berbentuk stars
         status: data.status || "pending",
         createdAt: data.createdAt || new Date().toISOString(),
       } as Testimonial;
@@ -36,12 +37,12 @@ export async function createTestimonial(data: Omit<Testimonial, "id" | "createdA
   try {
     const testimonialData = {
       ...data,
-      status: data.status || "pending",
+      status: (data as any).status || "pending",
       createdAt: new Date().toISOString(),
     };
 
     const docRef = await db.collection("testimonials").add(testimonialData);
-    return { id: docRef.id, ...testimonialData } as Testimonial;
+    return { id: docRef.id, ...testimonialData } as unknown as Testimonial;
   } catch (error) {
     console.error("❌ Error creating testimonial in Firebase:", error);
     throw error;
@@ -61,7 +62,7 @@ export async function updateTestimonialStatus(id: string, status: TestimonialSta
     };
 
     await docRef.update(updates);
-    return { id, ...doc.data(), ...updates } as Testimonial;
+    return { id, ...doc.data(), ...updates } as unknown as Testimonial;
   } catch (error) {
     console.error(`❌ Error updating testimonial status (ID: ${id}):`, error);
     throw error;
