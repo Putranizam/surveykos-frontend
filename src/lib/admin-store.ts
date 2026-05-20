@@ -21,8 +21,8 @@ export async function listTestimonials(): Promise<Testimonial[]> {
         name: data.name || "Anonim",
         role: data.role || "Pengguna",
         location: data.location || "Malang",
-        quote: data.quote || data.message || "", // Fallback ke message kalau ada data lama di Firebase
-        rating: Number(data.rating) || Number(data.stars) || 5, // Fallback ke stars kalau data lama berbentuk stars
+        quote: data.quote || data.message || "", 
+        rating: Number(data.rating) || Number(data.stars) || 5, 
         status: data.status || "pending",
         createdAt: data.createdAt || new Date().toISOString(),
       } as Testimonial;
@@ -89,7 +89,7 @@ export async function deleteTestimonial(id: string): Promise<boolean> {
 // ==========================================
 
 /**
- * Mengambil semua data keuangan dengan fallback nilai aman untuk mencegah crash UI
+ * Mengambil semua data keuangan, diselaraskan dengan type Finance (description, date)
  */
 export async function listFinances(): Promise<Finance[]> {
   try {
@@ -104,7 +104,8 @@ export async function listFinances(): Promise<Finance[]> {
         title: data.title || "Transaksi Tanpa Judul",
         amount: Number(data.amount) || 0,
         type: data.type === "expense" ? "expense" : "income",
-        category: data.category || "Umum",
+        description: data.description || data.category || "Umum", // Menjawab komplain TypeScript
+        date: data.date || data.createdAt || new Date().toISOString().split('T')[0], // Menjawab komplain TypeScript
         createdAt: data.createdAt || new Date().toISOString(),
       } as Finance;
     });
@@ -123,7 +124,7 @@ export async function createFinance(data: Omit<Finance, "id" | "createdAt">): Pr
     };
 
     const docRef = await db.collection("finances").add(financeData);
-    return { id: docRef.id, ...financeData } as Finance;
+    return { id: docRef.id, ...financeData } as unknown as Finance;
   } catch (error) {
     console.error("❌ Error creating finance in Firebase:", error);
     throw error;
@@ -142,7 +143,7 @@ export async function updateFinance(id: string, data: Partial<Omit<Finance, "id"
     }
 
     await docRef.update(data);
-    return { id, ...doc.data(), ...data } as Finance;
+    return { id, ...doc.data(), ...data } as unknown as Finance;
   } catch (error) {
     console.error(`❌ Error updating finance (ID: ${id}):`, error);
     throw error;
